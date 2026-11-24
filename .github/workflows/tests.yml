@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
       - name: scan tracked files
         run: bash scripts/ci/no-private-refs.sh
 
@@ -37,7 +37,7 @@ jobs:
     env:
       CARGO_INCREMENTAL: "0"
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
 
       # The toolchain action needs its own copy of the version, and that copy silently
       # drifted from `rust-toolchain.toml` (it still said 1.99.1 while the pin said 1.100.0,
