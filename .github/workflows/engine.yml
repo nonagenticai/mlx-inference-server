@@ -1,0 +1,70 @@
+name: Engine (Metal-compiled)
+
+# Produces the ONE artifact a Command-Line-Tools-only host cannot make itself:
+# mlxcel-server built against a real Metal toolchain, with the kernels it
+# compiled (no `_hgs_0` mismatch, so quantized checkpoints work).
+#
+# Why this lives on a GitHub-hosted runner: the estate does not compile Rust on
+# local hardware, and the 16 GB mini cannot build tens of GB of MLX. This repo is
+# public, so macOS minutes are free. The artifact is what a host installs; the
+# toolchain stays off the host.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["engine-*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Assert an Apple Silicon runner
+        run: |
+          uname -m
+          [ "$(uname -m)" = "arm64" ] || { echo "::error::need an arm64 macOS runner"; exit 1; }
+          xcrun -f metal
+
+      - name: Install the Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # build-mlxcel.sh expects cargo-guard (the fleet's shared-target wrapper).
+      # On an ephemeral runner there is nothing to protect, so this shim keeps the
+      # script unchanged and points it at the ordinary cargo target directory.
+      - name: Provide the cargo-guard shim
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cat > "$RUNNER_TEMP/bin/cargo-guard" <<'SH'
+          #!/bin/bash
+          set -euo pipefail
+          if [ "${1:-}" = "--print-target" ]; then printf '%s\n' "$PWD/target"; exit 0; fi
+          exec cargo "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/bin/cargo-guard"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Clone the pinned engine source
+        run: git clone --quiet https://github.com/lablup/mlxcel "$HOME/src/mlxcel"
+
+      - name: Build the engine with MLX's own kernels
+        env:
+          MLXCEL_PREBUILT_METALLIB: "0"
+          CARGO_GUARD: ${{ runner.temp }}/bin/cargo-guard
+        run: |
+          set -euo pipefail
+          ./scripts/build-mlxcel.sh
+          ls -lh vendor/mlxcel
+          file vendor/mlxcel/mlxcel-server
+          cat vendor/mlxcel/REVISION
+
+      - name: Upload the engine + kernels
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlxcel-metal-${{ github.sha }}
+          path: vendor/mlxcel/
+          if-no-files-found: error
+          retention-days: 14
