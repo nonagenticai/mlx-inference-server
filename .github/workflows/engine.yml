@@ -19,7 +19,10 @@ permissions:
 jobs:
   build:
     runs-on: macos-latest
-    timeout-minutes: 90
+    # The first attempt hit a 90-minute cap MID-BUILD: MLX compiles its whole
+    # Metal kernel set from source here (that is the point). GitHub's hard cap is
+    # 6 h; 300 min leaves room for a cold, uncached build.
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -31,6 +34,13 @@ jobs:
 
       - name: Install the Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      # Resume an interrupted attempt instead of recompiling MLX's C++ and its
+      # kernel set from zero (the 2026-11-24 run was cancelled at the cap).
+      - name: Cache the cargo/MLX build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "$HOME/src/mlxcel -> target"
 
       # build-mlxcel.sh expects cargo-guard (the fleet's shared-target wrapper).
       # On an ephemeral runner there is nothing to protect, so this shim keeps the
